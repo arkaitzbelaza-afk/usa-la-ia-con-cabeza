@@ -813,8 +813,12 @@ console.log("%c© Todos los derechos reservados. Uso didáctico exclusivo.","col
         r.gusto.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul></details>' : '') +
       (r.mejorar.length ? '<details><summary>Qué mejorarían (' + r.mejorar.length + ')</summary><ul>' +
         r.mejorar.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul></details>' : '') +
-      '<p style="margin:10px 0 0"><button class="mini secondary" id="diosEncBorrar">Borrar respuestas</button> ' +
+      '<p style="margin:10px 0 0"><button class="mini" id="diosEncXlsx">Descargar encuesta (Excel)</button> ' +
+      '<button class="mini" id="diosEncPdf">Descargar encuesta (PDF)</button> ' +
+      '<button class="mini secondary" id="diosEncBorrar">Borrar respuestas</button> ' +
       '<span style="font-size:12px;color:var(--tinta-suave)">Descarga antes el informe si quieres conservarlas (útil al empezar con un grupo nuevo).</span></p>';
+    document.getElementById("diosEncXlsx").addEventListener("click", function(){ informeExcel(true); });
+    document.getElementById("diosEncPdf").addEventListener("click", function(){ informePdf(true); });
     document.getElementById("diosEncBorrar").addEventListener("click", function(){
       if (!confirm("¿Borrar TODAS las respuestas de la encuesta? Esta acción no se puede deshacer.")) return;
       profeEscribe("encuestas", null).then(function(ok){
@@ -861,11 +865,14 @@ console.log("%c© Todos los derechos reservados. Uso didáctico exclusivo.","col
       document.head.appendChild(s);
     });
   }
-  function informeExcel(){
+  // soloEnc = true: solo los resultados de la encuesta (botones del recuadro de la encuesta).
+  function informeExcel(soloEnc){
+    soloEnc = soloEnc === true;
     conDatos(function(doc){
       diosStatus.textContent = 'Preparando el Excel...';
       cargarSheetJS().then(function(X){
         var filas = filasProgreso(doc), libro = X.utils.book_new();
+        if (!soloEnc){
         var cab = ["Alumno"].concat(ROOM_IDS.map(function(id, i){ return "N" + (i + 1) + " · " + ROOM_LABELS[id].replace(/^\d+ · /, ""); }))
           .concat(["Niveles terminados", "Ejercicios hechos", "% del taller", "Última actividad"]);
         var datos = [cab].concat(filas.map(function(f){
@@ -879,13 +886,15 @@ console.log("%c© Todos los derechos reservados. Uso didáctico exclusivo.","col
           if (hoja[cF] && hoja[cF].t === "d") hoja[cF].z = "dd/mm/yyyy hh:mm";
         }
         X.utils.book_append_sheet(libro, hoja, "Progreso");
+        }
 
         var r = resumenEncuesta(doc.encuestas || []);
         var media = filas.length ? filas.reduce(function(a, f){ return a + f.porcentaje; }, 0) / filas.length : 0;
-        var res = [["Informe del grupo · Usa la IA con cabeza"], ["Fecha", fechaLarga(Date.now())], [],
+        var res = (soloEnc ? [["Encuesta de satisfacción · Usa la IA con cabeza"], ["Fecha", fechaLarga(Date.now())], []]
+          : [["Informe del grupo · Usa la IA con cabeza"], ["Fecha", fechaLarga(Date.now())], [],
           ["Alumnos", filas.length], ["Progreso medio del grupo", Math.round(media) + " %"],
-          ["Han terminado el taller", filas.filter(function(f){ return f.terminados === ROOM_IDS.length; }).length], [],
-          ["ENCUESTA DE SATISFACCIÓN"], ["Respuestas", r.n]]
+          ["Han terminado el taller", filas.filter(function(f){ return f.terminados === ROOM_IDS.length; }).length], []])
+          .concat([["ENCUESTA DE SATISFACCIÓN"], ["Respuestas", r.n]])
           .concat(ENC_PREG.map(function(q){ return [q[1] + " (1 a 5)", r.n ? +r.medias[q[0]].toFixed(2) : "—"]; }))
           .concat([["Lo recomendarían", pct(r.rec.si, r.n)], ["Quizás", pct(r.rec.quizas, r.n)], ["No", pct(r.rec.no, r.n)], [],
                    ["© Arkaitz Belaza Delgado para Zabaltzen Sartu · Todos los derechos reservados"]]);
@@ -900,7 +909,7 @@ console.log("%c© Todos los derechos reservados. Uso didáctico exclusivo.","col
         hojaE["!cols"] = [{ wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 50 }, { wch: 50 }];
         X.utils.book_append_sheet(libro, hojaE, "Encuesta (anónima)");
 
-        X.writeFile(libro, "Informe_UsaLaIAconCabeza_" + fechaHoy() + ".xlsx");
+        X.writeFile(libro, (soloEnc ? "Encuesta_" : "Informe_") + "UsaLaIAconCabeza_" + fechaHoy() + ".xlsx");
         diosStatus.textContent = '✓ Excel descargado';
       }).catch(function(){
         diosStatus.textContent = '✗ No se ha podido preparar el Excel (hace falta conexión a internet)';
@@ -909,12 +918,14 @@ console.log("%c© Todos los derechos reservados. Uso didáctico exclusivo.","col
   }
 
   // Informe en PDF: se monta una página de informe y se abre el diálogo de imprimir («Guardar como PDF»).
-  function informePdf(){
+  function informePdf(soloEnc){
+    soloEnc = soloEnc === true;
     conDatos(function(doc){
       var filas = filasProgreso(doc), r = resumenEncuesta(doc.encuestas || []);
       var media = filas.length ? filas.reduce(function(a, f){ return a + f.porcentaje; }, 0) / filas.length : 0;
-      var h = '<div class="inf-cab"><div><h1>Informe del grupo · Usa la IA con cabeza</h1><p>Generado el ' + escapeHtml(fechaLarga(Date.now())) + '</p></div>' +
-        (MARCA_LOGO ? '<img src="' + MARCA_LOGO + '" alt="">' : '') + '</div>' +
+      var h = '<div class="inf-cab"><div><h1>' + (soloEnc ? 'Encuesta de satisfacción' : 'Informe del grupo') + ' · Usa la IA con cabeza</h1><p>Generado el ' + escapeHtml(fechaLarga(Date.now())) + '</p></div>' +
+        (MARCA_LOGO ? '<img src="' + MARCA_LOGO + '" alt="">' : '') + '</div>';
+      if (!soloEnc) h +=
         '<div class="inf-stats"><div><b>' + filas.length + '</b>alumnos</div><div><b>' + Math.round(media) + ' %</b>progreso medio</div>' +
         '<div><b>' + filas.filter(function(f){ return f.terminados === ROOM_IDS.length; }).length + '</b>han terminado</div>' +
         '<div><b>' + r.n + '</b>encuestas</div></div>' +
@@ -935,6 +946,16 @@ console.log("%c© Todos los derechos reservados. Uso didáctico exclusivo.","col
           '<td>' + pct(r.rec.si, r.n) + ' sí · ' + pct(r.rec.quizas, r.n) + ' quizás · ' + pct(r.rec.no, r.n) + ' no</td></tr></table>';
         if (r.gusto.length) h += '<h2>Lo que más ha gustado</h2><ul>' + r.gusto.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul>';
         if (r.mejorar.length) h += '<h2>Qué mejorarían</h2><ul>' + r.mejorar.map(function(t){ return '<li>' + escapeHtml(t) + '</li>'; }).join('') + '</ul>';
+        if (soloEnc){
+          h += '<h2>Todas las respuestas</h2><table><tr><th>Fecha</th>' + ENC_PREG.map(function(q){ return '<th>' + q[1] + '</th>'; }).join('') +
+            '<th>Lo recomendaría</th><th>Lo que más le ha gustado</th><th>Qué mejoraría</th></tr>' +
+            (doc.encuestas || []).map(function(e){
+              return '<tr><td>' + escapeHtml(fmtDate(e.fecha)) + '</td>' + ENC_PREG.map(function(q){ return '<td>' + (e[q[0]] || '') + '</td>'; }).join('') +
+                '<td>' + escapeHtml(ENC_REC[e.recomendar] || '') + '</td><td class="nom">' + escapeHtml(e.gusto || '') + '</td><td class="nom">' + escapeHtml(e.mejorar || '') + '</td></tr>';
+            }).join('') + '</table>';
+        }
+      } else if (soloEnc){
+        h += '<p>Todavía no hay respuestas a la encuesta.</p>';
       }
       h += '<div class="inf-pie">«Usa la IA con cabeza» · obra de ' + _af + ' para Zabaltzen Sartu · © Todos los derechos reservados</div>';
       var cont = document.getElementById("informeImprimir");
